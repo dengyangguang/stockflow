@@ -74,7 +74,7 @@ public class MemberServiceImpl extends ServiceImpl<MemberMapper, Member> impleme
     }
 
     @Override
-    public void refund(Integer memberId, BigDecimal amount, String operator, String remark) {
+    public void refund(Integer memberId, BigDecimal amount, int points, String operator, String remark) {
         Member member = getById(memberId);
         if (member == null) {
             throw new RuntimeException("会员不存在");
@@ -84,7 +84,7 @@ public class MemberServiceImpl extends ServiceImpl<MemberMapper, Member> impleme
         }
 
         // 原子增加余额，防止并发退款丢失更新
-        if (baseMapper.addBalance(memberId, amount) == 0) {
+        if (baseMapper.refundConsumption(memberId, amount, points) == 0) {
             throw new RuntimeException("退款失败，请重试");
         }
 

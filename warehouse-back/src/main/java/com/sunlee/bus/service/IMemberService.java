@@ -14,5 +14,5 @@ public interface IMemberService extends IService<Member> {
     void consume(Integer memberId, BigDecimal amount, String operator, String remark);
 
     /** 退款 */
-    void refund(Integer memberId, BigDecimal amount, String operator, String remark);
+    void refund(Integer memberId, BigDecimal amount, int points, String operator, String remark);
 }

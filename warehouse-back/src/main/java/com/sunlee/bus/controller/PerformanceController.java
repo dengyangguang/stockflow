@@ -1,8 +1,9 @@
 package com.sunlee.bus.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.sunlee.bus.entity.Sales;
-import com.sunlee.bus.service.ISalesService;
+import com.sunlee.bus.entity.Goods;
+import com.sunlee.bus.service.IGoodsService;
+import com.sunlee.bus.service.SalesStatsService;
+import com.sunlee.bus.service.SalesStatsService.SaleLine;
 import com.sunlee.sys.common.DataGridView;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,7 +25,10 @@ import java.util.stream.Collectors;
 public class PerformanceController {
 
     @Autowired
-    private ISalesService salesService;
+    private SalesStatsService salesStatsService;
+
+    @Autowired
+    private IGoodsService goodsService;
 
     /**
      * 销售员业绩排名
@@ -39,25 +43,21 @@ public class PerformanceController {
             String period) {
 
         Date[] range = resolveDateRange(period, startTime, endTime);
-        QueryWrapper<Sales> qw = new QueryWrapper<>();
-        qw.ge(range[0] != null, "salestime", range[0]);
-        qw.le(range[1] != null, "salestime", range[1]);
-        List<Sales> salesList = salesService.list(qw);
+        List<SaleLine> salesList = salesStatsService.load(range[0], range[1]);
 
         // 按操作人分组统计
-        Map<String, List<Sales>> grouped = salesList.stream()
-                .filter(s -> s.getOperateperson() != null)
-                .collect(Collectors.groupingBy(Sales::getOperateperson));
+        Map<String, List<SaleLine>> grouped = salesList.stream()
+                .collect(Collectors.groupingBy(SaleLine::operator));
 
         List<Map<String, Object>> ranking = new ArrayList<>();
-        for (Map.Entry<String, List<Sales>> entry : grouped.entrySet()) {
+        for (Map.Entry<String, List<SaleLine>> entry : grouped.entrySet()) {
             Map<String, Object> item = new HashMap<>();
             item.put("operator", entry.getKey());
-            List<Sales> list = entry.getValue();
-            int totalOrders = list.size();
-            int totalQuantity = list.stream().mapToInt(s -> s.getNumber() != null ? s.getNumber() : 0).sum();
+            List<SaleLine> list = entry.getValue();
+            long totalOrders = list.stream().map(SaleLine::orderKey).distinct().count();
+            int totalQuantity = list.stream().mapToInt(SaleLine::quantity).sum();
             BigDecimal totalAmount = list.stream()
-                    .map(s -> s.getSaleprice() != null ? s.getSaleprice().multiply(BigDecimal.valueOf(s.getNumber() != null ? s.getNumber() : 0)) : BigDecimal.ZERO)
+                    .map(SaleLine::amount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             item.put("totalOrders", totalOrders);
             item.put("totalQuantity", totalQuantity);
@@ -86,27 +86,31 @@ public class PerformanceController {
             String period) {
 
         Date[] range = resolveDateRange(period, startTime, endTime);
-        QueryWrapper<Sales> qw = new QueryWrapper<>();
-        qw.ge(range[0] != null, "salestime", range[0]);
-        qw.le(range[1] != null, "salestime", range[1]);
-        List<Sales> salesList = salesService.list(qw);
+        List<SaleLine> salesList = salesStatsService.load(range[0], range[1]);
 
         // 按商品分组
-        Map<Integer, List<Sales>> grouped = salesList.stream()
-                .filter(s -> s.getGoodsid() != null)
-                .collect(Collectors.groupingBy(Sales::getGoodsid));
+        Map<Integer, List<SaleLine>> grouped = salesList.stream()
+                .filter(s -> s.goodsId() != null)
+                .collect(Collectors.groupingBy(SaleLine::goodsId));
+
+        Map<Integer, String> goodsNames = new HashMap<>();
+        if (!grouped.isEmpty()) {
+            for (Goods goods : goodsService.listByIds(grouped.keySet())) {
+                goodsNames.put(goods.getId(), goods.getGoodsname());
+            }
+        }
 
         List<Map<String, Object>> ranking = new ArrayList<>();
-        for (Map.Entry<Integer, List<Sales>> entry : grouped.entrySet()) {
+        for (Map.Entry<Integer, List<SaleLine>> entry : grouped.entrySet()) {
             Map<String, Object> item = new HashMap<>();
             item.put("goodsid", entry.getKey());
-            List<Sales> list = entry.getValue();
+            List<SaleLine> list = entry.getValue();
             // 取商品名
-            String goodsName = list.stream().map(Sales::getGoodsname).filter(Objects::nonNull).findFirst().orElse("商品#" + entry.getKey());
+            String goodsName = goodsNames.getOrDefault(entry.getKey(), "商品#" + entry.getKey());
             item.put("goodsname", goodsName);
-            int totalQuantity = list.stream().mapToInt(s -> s.getNumber() != null ? s.getNumber() : 0).sum();
+            int totalQuantity = list.stream().mapToInt(SaleLine::quantity).sum();
             BigDecimal totalAmount = list.stream()
-                    .map(s -> s.getSaleprice() != null ? s.getSaleprice().multiply(BigDecimal.valueOf(s.getNumber() != null ? s.getNumber() : 0)) : BigDecimal.ZERO)
+                    .map(SaleLine::amount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             item.put("totalQuantity", totalQuantity);
             item.put("totalAmount", totalAmount.setScale(2, RoundingMode.HALF_UP));
@@ -124,7 +128,10 @@ public class PerformanceController {
 
     private Date[] resolveDateRange(String period, Date startTime, Date endTime) {
         if (startTime != null && endTime != null) {
-            return new Date[]{startTime, endTime};
+            Calendar end = Calendar.getInstance();
+            end.setTime(endTime);
+            end.add(Calendar.DAY_OF_MONTH, 1);
+            return new Date[]{startTime, end.getTime()};
         }
         Calendar cal = Calendar.getInstance();
         Date now = new Date();
@@ -169,6 +176,6 @@ public class PerformanceController {
                     break;
             }
         }
-        return new Date[]{start, now};
+        return new Date[]{start, new Date(now.getTime() + 1000)};
     }
 }

@@ -9,7 +9,11 @@ import com.sunlee.bus.entity.RetailLog;
 import com.sunlee.bus.service.IGoodsService;
 import com.sunlee.bus.service.IOperationLogService;
 import com.sunlee.bus.service.IRetailService;
+import com.sunlee.bus.service.MemberPaymentPinService;
+import com.sunlee.bus.service.ShoppingCardService;
 import com.sunlee.bus.vo.RetailVo;
+import com.sunlee.bus.vo.MemberRetailCheckoutVo;
+import com.sunlee.bus.vo.ShoppingCardCheckoutVo;
 import com.sunlee.sys.annotation.OperationLog;
 import com.sunlee.sys.common.Constast;
 import com.sunlee.sys.common.DataGridView;
@@ -24,6 +28,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.math.BigDecimal;
 
 @Slf4j
 @RestController
@@ -38,6 +45,30 @@ public class RetailController {
 
     @Autowired
     private IOperationLogService operationLogService;
+
+    @Autowired
+    private MemberPaymentPinService memberPaymentPinService;
+
+    @Autowired
+    private ShoppingCardService shoppingCardService;
+
+    @RequestMapping("loadShoppingCardRate")
+    public Map<String, Object> loadShoppingCardRate() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("ratePercent", shoppingCardService.getRate());
+        return result;
+    }
+
+    @OperationLog(type = "修改", module = "散客零售", description = "'设置超市购物卡扣点率'")
+    @RequestMapping("saveShoppingCardRate")
+    public ResultObj saveShoppingCardRate(BigDecimal ratePercent) {
+        try {
+            shoppingCardService.saveRate(ratePercent);
+            return ResultObj.ok("扣点率已保存");
+        } catch (Exception e) {
+            return ResultObj.error(e.getMessage());
+        }
+    }
 
     @RequestMapping("loadAllRetail")
     public DataGridView loadAllRetail(RetailVo retailVo) {
@@ -63,6 +94,10 @@ public class RetailController {
     @RequestMapping("addRetail")
     public ResultObj addRetail(RetailVo retailVo) {
         try {
+            if ("会员余额".equals(retailVo.getPaytype()) || "超市购物卡".equals(retailVo.getPaytype())) {
+                return ResultObj.error("该支付方式请使用零售结算");
+            }
+            retailVo.setMemberId(null);
             if (retailVo.getGoodsid() == null) {
                 return ResultObj.error("商品ID不能为空");
             }
@@ -87,12 +122,15 @@ public class RetailController {
      * 校验批量明细：商品、数量>0、价格>0。负数量经原子库存SQL会反向变成凭空加库存，必须在入口处拦截
      * @return 校验失败时的错误信息，null 表示通过
      */
-    private String checkOrderItems(List<Retail> list) {
+    private String checkOrderItems(List<Retail> list, boolean specialCheckout) {
         if (list == null || list.isEmpty()) {
             return "零售明细不能为空";
         }
         for (int i = 0; i < list.size(); i++) {
             Retail item = list.get(i);
+            if (!specialCheckout && ("会员余额".equals(item.getPaytype()) || "超市购物卡".equals(item.getPaytype()))) {
+                return "该支付方式请使用零售结算";
+            }
             if (item.getGoodsid() == null) {
                 return "第" + (i + 1) + "行商品ID不能为空";
             }
@@ -110,7 +148,7 @@ public class RetailController {
     @RequestMapping("batchAddRetail")
     public ResultObj batchAddRetail(@RequestBody List<Retail> list) {
         try {
-            String checkError = checkOrderItems(list);
+            String checkError = checkOrderItems(list, false);
             if (checkError != null) {
                 return new ResultObj(Constast.ERROR, checkError);
             }
@@ -120,6 +158,7 @@ public class RetailController {
             String orderNo = "RO" + System.currentTimeMillis() + String.format("%04d", (int)(Math.random() * 10000));
             int totalNumber = 0;
             for (Retail retail : list) {
+                retail.setMemberId(null);
                 retail.setOrderno(orderNo);
                 retail.setOperateperson(user.getName());
                 retail.setRetailtime(now);
@@ -138,6 +177,72 @@ public class RetailController {
         } catch (Exception e) {
             log.error("批量零售失败: {}", e.getMessage(), e);
             return new ResultObj(Constast.ERROR, "添加失败: " + e.getMessage());
+        }
+    }
+
+    @OperationLog(type = "添加", module = "散客零售", description = "'会员余额零售'")
+    @RequestMapping("checkoutMember")
+    public ResultObj checkoutMember(@RequestBody MemberRetailCheckoutVo checkout) {
+        try {
+            if (checkout == null || checkout.getMemberId() == null) {
+                return ResultObj.error("请选择会员");
+            }
+            List<Retail> list = checkout.getItems();
+            String checkError = checkOrderItems(list, true);
+            if (checkError != null) {
+                return ResultObj.error(checkError);
+            }
+            String pinError = memberPaymentPinService.verify(checkout.getMemberId(), checkout.getPaymentPin());
+            if (pinError != null) {
+                return ResultObj.error(pinError);
+            }
+            User user = (User) WebUtils.getSession().getAttribute("user");
+            Date now = new Date();
+            String orderNo = "RO" + System.currentTimeMillis() + String.format("%04d", (int)(Math.random() * 10000));
+            for (Retail retail : list) {
+                retail.setId(null);
+                retail.setOrderno(orderNo);
+                retail.setOperateperson(user.getName());
+                retail.setRetailtime(now);
+                retail.setOrderStatus(0);
+                retail.setIsdelete(0);
+            }
+            retailService.checkoutMember(list, checkout.getMemberId(), user.getName());
+            return new ResultObj(Constast.OK, "会员余额支付成功");
+        } catch (Exception e) {
+            log.error("会员余额支付失败: {}", e.getMessage(), e);
+            return ResultObj.error("支付失败: " + e.getMessage());
+        }
+    }
+
+    @OperationLog(type = "添加", module = "散客零售", description = "'超市购物卡零售'")
+    @RequestMapping("checkoutShoppingCard")
+    public ResultObj checkoutShoppingCard(@RequestBody ShoppingCardCheckoutVo checkout) {
+        try {
+            if (checkout == null) {
+                return ResultObj.error("结算信息不能为空");
+            }
+            List<Retail> list = checkout.getItems();
+            String checkError = checkOrderItems(list, true);
+            if (checkError != null) {
+                return ResultObj.error(checkError);
+            }
+            User user = (User) WebUtils.getSession().getAttribute("user");
+            Date now = new Date();
+            String orderNo = "RO" + System.currentTimeMillis() + String.format("%04d", (int)(Math.random() * 10000));
+            for (Retail retail : list) {
+                retail.setId(null);
+                retail.setOrderno(orderNo);
+                retail.setOperateperson(user.getName());
+                retail.setRetailtime(now);
+                retail.setOrderStatus(0);
+                retail.setIsdelete(0);
+            }
+            retailService.checkoutShoppingCard(list, checkout.getExpectedRate());
+            return ResultObj.ok("超市购物卡结算成功");
+        } catch (Exception e) {
+            log.error("超市购物卡结算失败: {}", e.getMessage(), e);
+            return ResultObj.error("结算失败: " + e.getMessage());
         }
     }
 
@@ -226,7 +331,7 @@ public class RetailController {
     @RequestMapping("addToOrder")
     public ResultObj addToOrder(@RequestBody List<Retail> list) {
         try {
-            String checkError = checkOrderItems(list);
+            String checkError = checkOrderItems(list, false);
             if (checkError != null) {
                 return new ResultObj(Constast.ERROR, checkError);
             }

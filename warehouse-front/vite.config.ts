@@ -11,9 +11,13 @@ export default defineConfig({
   },
   server: {
     port: 8888,
+    host: '0.0.0.0',
+    watch: {
+      usePolling: process.env.VITE_USE_POLLING === 'true'
+    },
     proxy: {
       '/warehouse': {
-        target: 'http://localhost:8899',
+        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:8899',
         changeOrigin: true
       }
     }

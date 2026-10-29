@@ -80,6 +80,9 @@
       <el-table :data="stocktakeItems" border stripe>
         <el-table-column prop="goodsname" label="商品名称" min-width="150" />
         <el-table-column prop="providername" label="供应商" width="120" />
+        <el-table-column v-if="canViewCost" label="参考成本价" width="110" align="right">
+          <template #default="{ row }">{{ row.costPrice == null ? '-' : `¥${Number(row.costPrice).toFixed(2)}` }}</template>
+        </el-table-column>
         <el-table-column prop="systemNum" label="系统库存" width="100" align="center">
           <template #default="{ row }">
             <span style="font-weight: 600;">{{ row.systemNum }}</span>
@@ -172,8 +175,11 @@ import {
   cancelStocktake
 } from '@/api/stocktake'
 import { loadAllWarehouseForSelect } from '@/api/warehouse'
+import { usePermission } from '@/composables/usePermission'
 import { onMounted } from 'vue'
 
+const { hasPermission } = usePermission()
+const canViewCost = computed(() => hasPermission('goods:cost:view'))
 const tableRef = ref()
 const searchParams = reactive<{ status: number | undefined; warehouseId: number | undefined }>({
   status: undefined,
@@ -197,9 +203,10 @@ const printMeta = computed<PrintMetaItem[]>(() => [
   { label: '完成时间', value: currentStocktake.value?.finishTime || '-' }
 ])
 
-const printColumns: PrintColumn[] = [
+const printColumns = computed<PrintColumn[]>(() => [
   { key: 'goodsname', label: '商品名称' },
   { key: 'providername', label: '供应商', width: '110px' },
+  ...(canViewCost.value ? [{ key: 'costPrice', label: '参考成本价', align: 'right' as const, width: '90px', format: (row: any) => row.costPrice == null ? '-' : `¥${Number(row.costPrice).toFixed(2)}` }] : []),
   { key: 'systemNum', label: '系统库存', align: 'center', width: '80px' },
   { key: 'actualNum', label: '实际盘点', align: 'center', width: '80px', format: (row) => row.actualNum ?? '-' },
   {
@@ -207,7 +214,7 @@ const printColumns: PrintColumn[] = [
     format: (row) => row.actualNum != null ? (row.diffNum > 0 ? `+${row.diffNum}` : `${row.diffNum}`) : '-'
   },
   { key: 'remark', label: '备注', format: (row) => row.remark || '-' }
-]
+])
 
 const printSummary = computed<PrintMetaItem[]>(() => {
   let surplus = 0

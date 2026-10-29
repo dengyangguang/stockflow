@@ -54,7 +54,7 @@
             </div>
             <div class="header-text-group">
               <span class="header-title">销售分析</span>
-              <span class="header-subtitle">按时间段统计销售金额</span>
+              <span class="header-subtitle">按时间段统计销售与零售金额</span>
             </div>
           </div>
           <div class="card-header-right">

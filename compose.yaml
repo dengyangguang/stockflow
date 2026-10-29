@@ -1,0 +1,64 @@
+name: stockflow
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env.docker}
+      MYSQL_DATABASE: warehouse
+      MYSQL_USER: ${MYSQL_USERNAME:-warehouse}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env.docker}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PUBLISH_PORT:-3307}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/warehouse.sql:/docker-entrypoint-initdb.d/001-warehouse.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  backend:
+    image: maven:3.9-eclipse-temurin-21
+    working_dir: /workspace
+    command: ["mvn", "-f", "warehouse-back/pom.xml", "spring-boot:run", "-P", "dev"]
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DB: warehouse
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-warehouse}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env.docker}
+    ports:
+      - "8899:8899"
+    volumes:
+      - .:/workspace
+      - maven_cache:/root/.m2
+      - backend_target:/workspace/warehouse-back/target
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./warehouse-front
+      dockerfile: Dockerfile.dev
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    environment:
+      VITE_APP_BASE_URL: /warehouse
+      VITE_API_PROXY_TARGET: http://backend:8899
+      VITE_USE_POLLING: "true"
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./warehouse-front:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+  maven_cache:
+  backend_target:
+  frontend_node_modules:

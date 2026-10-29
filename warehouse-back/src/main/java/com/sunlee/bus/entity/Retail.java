@@ -37,6 +37,9 @@ public class Retail implements Serializable {
 
     private String paytype;
 
+    /** 会员余额支付时关联的会员 */
+    private Integer memberId;
+
     private Date retailtime;
 
     private String operateperson;

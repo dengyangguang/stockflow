@@ -8,6 +8,7 @@
             <div class="panel-header">
               <span class="panel-title">商品选择</span>
               <div style="display: flex; gap: 8px">
+                <el-button v-if="hasPermission('retail:update')" @click="openCardRateDialog">购物卡扣点设置</el-button>
                 <el-select v-model="selectedWarehouse" placeholder="选择仓库" style="width: 140px"
                   @change="onWarehouseChange">
                   <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
@@ -20,12 +21,14 @@
           <!-- 搜索栏 -->
           <div class="search-bar">
             <el-input
+              ref="searchInputRef"
               v-model="searchKeyword"
-              placeholder="搜索商品名称/拼音..."
+              placeholder="扫描商品条码，或输入商品名称、拼音"
               clearable
               prefix-icon="Search"
               size="large"
               @input="onSearchInput"
+              @keyup.enter="handleSearchEnter"
             />
           </div>
 
@@ -107,7 +110,27 @@
               <el-radio-button value="微信">微信</el-radio-button>
               <el-radio-button value="支付宝">支付宝</el-radio-button>
               <el-radio-button value="银行卡">银行卡</el-radio-button>
+              <el-radio-button value="会员余额">会员余额</el-radio-button>
+              <el-radio-button value="超市购物卡">超市购物卡</el-radio-button>
             </el-radio-group>
+          </div>
+
+          <div v-if="cartItems.length > 0 && paytype === '超市购物卡'" class="card-fee-summary">
+            <span v-if="cardRate !== null">扣点 {{ cardRate }}%：预计扣点 ¥{{ cardFee.toFixed(2) }}；预计到账 ¥{{ cardNet.toFixed(2) }}</span>
+            <span v-else>尚未设置购物卡扣点率，请有权限的人员先设置</span>
+          </div>
+
+          <div v-if="cartItems.length > 0 && paytype === '会员余额'" class="cart-paytype">
+            <span class="paytype-label">选择会员</span>
+            <el-select v-model="selectedMemberId" filterable remote clearable
+              :remote-method="searchMembers" :loading="membersLoading"
+              @change="onMemberChange"
+              placeholder="输入手机号、会员卡号或姓名" style="width: 100%">
+              <el-option v-for="member in members" :key="member.id"
+                :label="`${member.name} (${member.phone || member.memberNo}) · 余额 ¥${member.balance.toFixed(2)}`"
+                :value="member.id" />
+            </el-select>
+            <div v-if="selectedMember" class="member-balance">当前余额：¥{{ selectedMember.balance.toFixed(2) }}</div>
           </div>
 
           <!-- 备注 -->
@@ -141,6 +164,7 @@
     <el-dialog v-model="confirmDialogVisible" title="确认结算" width="600px">
       <div class="confirm-header">
         <span>支付方式: <strong>{{ paytype }}</strong></span>
+        <span v-if="paytype === '会员余额' && selectedMember">会员: <strong>{{ selectedMember.name }} · 余额 ¥{{ selectedMember.balance.toFixed(2) }}</strong></span>
       </div>
 
       <div class="confirm-goods-list">
@@ -167,6 +191,13 @@
         <span>总数量: <strong>{{ totalQuantity }}</strong> 件</span>
         <span>总金额: <strong style="color: #f56c6c;">¥{{ totalAmount.toFixed(2) }}</strong></span>
       </div>
+      <div v-if="paytype === '超市购物卡' && cardRate !== null" class="card-fee-summary">
+        扣点率 {{ cardRate }}%，预计扣点 ¥{{ cardFee.toFixed(2) }}，预计到账 ¥{{ cardNet.toFixed(2) }}
+      </div>
+
+      <el-input v-if="paytype === '会员余额'" v-model="paymentPin" type="password"
+        inputmode="numeric" maxlength="6" show-password autocomplete="off"
+        placeholder="请输入会员的6位支付密码" style="margin: 12px 0" />
 
       <div class="confirm-remark" v-if="remark">
         <span>备注: {{ remark }}</span>
@@ -177,14 +208,30 @@
         <el-button type="success" @click="handleSubmit" :loading="submitting">确认结算</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="cardRateDialogVisible" title="超市购物卡扣点设置" width="420px">
+      <el-form label-width="90px">
+        <el-form-item label="扣点率">
+          <el-input-number v-model="editingCardRate" :min="0" :max="100" :precision="2" :step="0.1" />
+          <span style="margin-left: 8px">%</span>
+        </el-form-item>
+      </el-form>
+      <p>按成交金额计算扣点；例如 100 元、扣点 5%，实际到账 95 元。</p>
+      <template #footer>
+        <el-button @click="cardRateDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingCardRate" @click="handleSaveCardRate">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onActivated, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { batchAddRetail } from '@/api/retail'
-import { loadGoodsForPOS } from '@/api/goods'
+import { batchAddRetail, checkoutMember, checkoutShoppingCard, loadShoppingCardRate, saveShoppingCardRate } from '@/api/retail'
+import { usePermission } from '@/composables/usePermission'
+import { findMember } from '@/api/member'
+import { loadGoodsForPOS, findGoodsByBarcode } from '@/api/goods'
 import { loadAllWarehouseForSelect } from '@/api/warehouse'
 
 interface GoodsItem {
@@ -205,14 +252,34 @@ interface CartItem {
   maxNumber: number
 }
 
+interface MemberItem {
+  id: number
+  name: string
+  phone?: string
+  memberNo: string
+  balance: number
+}
+
 const goodsList = ref<GoodsItem[]>([])
 const searchKeyword = ref('')
+const searchInputRef = ref<{ focus: () => void } | null>(null)
+const barcodeLoading = ref(false)
 // 仓库：默认选中默认仓；商品列表库存数即该仓分仓库存（后端按 warehouseId 覆盖）
 const warehouses = ref<any[]>([])
 const selectedWarehouse = ref<number | null>(null)
 const cartItems = ref<CartItem[]>([])
 const remark = ref('')
 const paytype = ref('现金')
+const { hasPermission } = usePermission()
+const cardRate = ref<number | null>(null)
+const cardRateDialogVisible = ref(false)
+const editingCardRate = ref(0)
+const savingCardRate = ref(false)
+const selectedMemberId = ref<number | null>(null)
+const paymentPin = ref('')
+const selectedMember = ref<MemberItem | null>(null)
+const members = ref<MemberItem[]>([])
+const membersLoading = ref(false)
 const submitting = ref(false)
 
 // 分页相关
@@ -233,6 +300,77 @@ const totalQuantity = computed(() => {
 const totalAmount = computed(() => {
   return cartItems.value.reduce((sum, item) => sum + item.retailprice * item.number, 0)
 })
+
+const cardFee = computed(() => Number((totalAmount.value * (cardRate.value ?? 0) / 100).toFixed(2)))
+const cardNet = computed(() => totalAmount.value - cardFee.value)
+
+async function refreshCardRate() {
+  const res: any = await loadShoppingCardRate()
+  cardRate.value = res.ratePercent == null ? null : Number(res.ratePercent)
+}
+
+function openCardRateDialog() {
+  editingCardRate.value = cardRate.value ?? 0
+  cardRateDialogVisible.value = true
+}
+
+async function handleSaveCardRate() {
+  savingCardRate.value = true
+  try {
+    await saveShoppingCardRate(editingCardRate.value)
+    await refreshCardRate()
+    cardRateDialogVisible.value = false
+    ElMessage.success('购物卡扣点率已保存')
+  } catch {} finally {
+    savingCardRate.value = false
+  }
+}
+
+function onMemberChange(memberId: number | null) {
+  selectedMember.value = members.value.find(member => member.id === memberId) || null
+}
+
+async function searchMembers(keyword: string) {
+  if (!keyword.trim()) {
+    members.value = []
+    return
+  }
+  membersLoading.value = true
+  try {
+    const res: any = await findMember({ keyword: keyword.trim() })
+    members.value = res.data || []
+  } finally {
+    membersLoading.value = false
+  }
+}
+
+async function handleSearchEnter() {
+  const code = searchKeyword.value.trim()
+  if (!code || barcodeLoading.value) return
+  if (searchTimer) clearTimeout(searchTimer)
+  barcodeLoading.value = true
+  try {
+    const res: any = await findGoodsByBarcode(code, selectedWarehouse.value || undefined)
+    const goods = res.data?.[0] as GoodsItem | undefined
+    if (goods) {
+      if (!selectedWarehouse.value) {
+        ElMessage.warning('请先选择仓库')
+        return
+      }
+      addToCart(goods)
+      searchKeyword.value = ''
+      currentPage.value = 1
+      loadGoods()
+    } else {
+      if (/^\d{8,14}$/.test(code)) ElMessage.warning(`未找到条码 ${code} 对应的上架商品`)
+      currentPage.value = 1
+      loadGoods()
+    }
+  } finally {
+    barcodeLoading.value = false
+    searchInputRef.value?.focus()
+  }
+}
 
 // 搜索输入防抖
 function onSearchInput() {
@@ -330,11 +468,32 @@ function handleConfirm() {
     return
   }
 
+  if (paytype.value === '会员余额') {
+    if (!selectedMember.value) {
+      ElMessage.warning('请先选择会员')
+      return
+    }
+    if (selectedMember.value.balance < totalAmount.value) {
+      ElMessage.warning('会员余额不足')
+      return
+    }
+  }
+
+  if (paytype.value === '超市购物卡' && cardRate.value === null) {
+    ElMessage.warning('请先设置超市购物卡扣点率')
+    return
+  }
+
+  paymentPin.value = ''
   confirmDialogVisible.value = true
 }
 
 // 提交结算
 async function handleSubmit() {
+  if (paytype.value === '会员余额' && !/^\d{6}$/.test(paymentPin.value)) {
+    ElMessage.warning('请输入会员的6位数字支付密码')
+    return
+  }
   try {
     submitting.value = true
     const data = cartItems.value.map(item => ({
@@ -346,18 +505,27 @@ async function handleSubmit() {
       remark: remark.value
     }))
 
-    const res: any = await batchAddRetail(data)
+    const res: any = paytype.value === '会员余额'
+      ? await checkoutMember(selectedMemberId.value!, paymentPin.value, data)
+      : paytype.value === '超市购物卡'
+        ? await checkoutShoppingCard(cardRate.value!, data)
+        : await batchAddRetail(data)
     if (res.code === 200) {
       ElMessage.success('结算成功')
       confirmDialogVisible.value = false
       cartItems.value = []
+      selectedMemberId.value = null
+      selectedMember.value = null
+      members.value = []
       remark.value = ''
       // 重新加载商品库存
       loadGoods()
+      nextTick(() => searchInputRef.value?.focus())
     }
   } catch (error) {
     console.error('结算失败:', error)
   } finally {
+    paymentPin.value = ''
     submitting.value = false
   }
 }
@@ -382,6 +550,7 @@ async function loadGoods() {
 }
 
 onMounted(async () => {
+  refreshCardRate().catch(() => { cardRate.value = null })
   try {
     const wRes: any = await loadAllWarehouseForSelect()
     warehouses.value = wRes.data || []
@@ -389,8 +558,12 @@ onMounted(async () => {
     selectedWarehouse.value = def ? def.id : (warehouses.value[0]?.id ?? null)
     prevWarehouse = selectedWarehouse.value
   } catch {}
-  loadGoods()
+  await loadGoods()
+  await nextTick()
+  searchInputRef.value?.focus()
 })
+
+onActivated(() => nextTick(() => searchInputRef.value?.focus()))
 </script>
 
 <style scoped>
@@ -598,6 +771,15 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.card-fee-summary {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-regular);
+  font-size: 13px;
 }
 
 .paytype-label {

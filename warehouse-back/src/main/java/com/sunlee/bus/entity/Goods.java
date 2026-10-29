@@ -41,11 +41,17 @@ public class Goods implements Serializable {
 
     private String productcode;
 
+    /** 包装上的商品条码，按字符串保存以保留前导零 */
+    private String barcode;
+
     private String promitcode;
 
     private String description;
 
     private Double price;
+
+    /** 进货开单时使用的参考成本价；实际成本保存在每笔进货明细中 */
+    private Double costPrice;
 
     private Integer number;
 

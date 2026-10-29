@@ -19,10 +19,12 @@
         where id = #{id} and balance &gt;= #{amount}
     </update>
 
-    <!--原子退款：余额增加-->
-    <update id="addBalance">
+    <!--原子退款：余额回补，同时冲回累计消费与本次返还的积分-->
+    <update id="refundConsumption">
         update bus_member
-        set balance = balance + #{amount}
+        set balance = balance + #{amount},
+            total_consume = greatest(0, total_consume - #{amount}),
+            points = greatest(0, points - #{points})
         where id = #{id}
     </update>
 

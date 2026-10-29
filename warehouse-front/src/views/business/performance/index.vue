@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header animate-fade-in-up">
       <h1 class="page-header-title">业绩排名</h1>
-      <p class="page-header-desc">销售员业绩和商品销量排名</p>
+      <p class="page-header-desc">商品销售与散客零售的业绩和商品销量排名</p>
     </div>
 
     <!-- 时间筛选 -->

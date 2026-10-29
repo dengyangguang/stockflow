@@ -8,6 +8,10 @@
                MAX(r.retailtime) AS retailtime,
                MAX(r.operateperson) AS operateperson,
                MAX(r.paytype) AS paytype,
+               MAX(card.rate_percent) AS cardRatePercent,
+               MAX(card.fee_amount) AS cardFeeAmount,
+               MAX(card.net_amount) AS cardNetAmount,
+               MAX(m.member_no) AS memberNo,
                MAX(r.remark) AS remark,
                SUM(CASE WHEN IFNULL(r.order_status, 0) = 0 THEN r.number ELSE 0 END) AS totalNumber,
                SUM(CASE WHEN IFNULL(r.order_status, 0) = 0 THEN r.retailprice * r.number ELSE 0 END) AS totalAmount,
@@ -16,6 +20,8 @@
                COUNT(*) AS itemCount,
                MIN(CASE WHEN IFNULL(r.order_status, 0) = 1 THEN 1 ELSE 0 END) AS orderStatus
         FROM bus_retail r
+        LEFT JOIN bus_member m ON m.id = r.member_id
+        LEFT JOIN bus_retail_card_settlement card ON card.order_no = r.orderno
         <where>
             r.isdelete = 0 AND r.orderno IS NOT NULL
             <if test="vo.paytype != null and vo.paytype != ''">

@@ -8,6 +8,8 @@
             <el-option label="微信" value="微信" />
             <el-option label="支付宝" value="支付宝" />
             <el-option label="银行卡" value="银行卡" />
+            <el-option label="会员余额" value="会员余额" />
+            <el-option label="超市购物卡" value="超市购物卡" />
           </el-select>
         </el-form-item>
       </SearchForm>
@@ -21,7 +23,13 @@
             <span style="color: #f56c6c; font-weight: 600;">¥{{ row.totalAmount?.toFixed(2) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="paytype" label="支付方式" width="80" />
+        <el-table-column label="实际到账" width="110" align="right">
+          <template #default="{ row }">
+            <span v-if="row.paytype === '超市购物卡'">¥{{ Number(row.cardNetAmount || 0).toFixed(2) }}</span>
+            <span v-else>—</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="paytype" label="支付方式" width="110" />
         <el-table-column prop="retailtime" label="零售时间" width="160" />
         <el-table-column prop="operateperson" label="操作员" min-width="100" />
         <el-table-column prop="remark" label="备注" min-width="150" show-overflow-tooltip>
@@ -57,6 +65,22 @@
           <div class="header-item">
             <span class="label">支付方式</span>
             <span class="value">{{ currentOrder.paytype }}</span>
+          </div>
+          <div class="header-item" v-if="currentOrder.memberNo">
+            <span class="label">会员卡号</span>
+            <span class="value">{{ currentOrder.memberNo }}</span>
+          </div>
+          <div class="header-item" v-if="currentOrder.paytype === '超市购物卡'">
+            <span class="label">扣点率</span>
+            <span class="value">{{ currentOrder.cardRatePercent }}%</span>
+          </div>
+          <div class="header-item" v-if="currentOrder.paytype === '超市购物卡'">
+            <span class="label">扣点金额</span>
+            <span class="value">¥{{ Number(currentOrder.cardFeeAmount || 0).toFixed(2) }}</span>
+          </div>
+          <div class="header-item" v-if="currentOrder.paytype === '超市购物卡'">
+            <span class="label">实际到账</span>
+            <span class="value">¥{{ Number(currentOrder.cardNetAmount || 0).toFixed(2) }}</span>
           </div>
           <div class="header-item">
             <span class="label">时间</span>

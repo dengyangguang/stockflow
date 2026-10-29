@@ -3,6 +3,7 @@ package com.sunlee.bus.controller;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.sunlee.bus.entity.*;
 import com.sunlee.bus.service.*;
+import com.sunlee.bus.service.SalesStatsService.SaleLine;
 import com.sunlee.sys.annotation.OperationLog;
 import com.sunlee.sys.common.DataGridView;
 import com.sunlee.sys.common.ResultObj;
@@ -37,7 +38,7 @@ public class CommissionController {
     private ICommissionRecordService commissionRecordService;
 
     @Autowired
-    private ISalesService salesService;
+    private SalesStatsService salesStatsService;
 
     /**
      * 查询所有提成规则
@@ -133,38 +134,31 @@ public class CommissionController {
                 return new ResultObj(-1, "提成规则不存在");
             }
 
-            // 查询该月所有销售记录
-            QueryWrapper<Sales> salesQW = new QueryWrapper<>();
+            // 查询该月商品销售和散客零售的有效成交数量
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM");
             Date monthStart = sdf.parse(yearMonth);
             Calendar cal = Calendar.getInstance();
             cal.setTime(monthStart);
             cal.add(Calendar.MONTH, 1);
             Date monthEnd = cal.getTime();
-            salesQW.ge("salestime", monthStart);
-            salesQW.lt("salestime", monthEnd);
-            List<Sales> salesList = salesService.list(salesQW);
+            List<SaleLine> salesList = salesStatsService.load(monthStart, monthEnd);
 
             // 按店员分组
-            Map<String, List<Sales>> grouped = new HashMap<>();
-            for (Sales sale : salesList) {
-                if (sale.getOperateperson() != null) {
-                    grouped.computeIfAbsent(sale.getOperateperson(), k -> new ArrayList<>()).add(sale);
-                }
+            Map<String, List<SaleLine>> grouped = new HashMap<>();
+            for (SaleLine sale : salesList) {
+                grouped.computeIfAbsent(sale.operator(), k -> new ArrayList<>()).add(sale);
             }
 
             List<CommissionRecord> records = new ArrayList<>();
-            for (Map.Entry<String, List<Sales>> entry : grouped.entrySet()) {
+            for (Map.Entry<String, List<SaleLine>> entry : grouped.entrySet()) {
                 String operator = entry.getKey();
-                List<Sales> opSales = entry.getValue();
+                List<SaleLine> opSales = entry.getValue();
 
                 BigDecimal totalSales = opSales.stream()
-                        .map(s -> s.getSaleprice() != null ?
-                                s.getSaleprice().multiply(BigDecimal.valueOf(s.getNumber() != null ? s.getNumber() : 0)) :
-                                BigDecimal.ZERO)
+                        .map(SaleLine::amount)
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-                int totalOrders = opSales.size();
+                int totalOrders = (int) opSales.stream().map(SaleLine::orderKey).distinct().count();
 
                 // 计算提成
                 BigDecimal rate;

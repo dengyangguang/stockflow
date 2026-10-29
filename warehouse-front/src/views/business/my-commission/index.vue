@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header animate-fade-in-up">
       <h1 class="page-header-title">我的提成</h1>
-      <p class="page-header-desc">查看个人月度提成明细</p>
+      <p class="page-header-desc">查看管理员计算后的个人月度提成明细</p>
     </div>
 
     <el-card>
@@ -63,7 +63,7 @@
       </el-table>
 
       <div v-if="records.length === 0" style="padding: 60px 0;">
-        <el-empty description="暂无提成记录" />
+        <el-empty description="暂无提成记录，请管理员先按月份计算提成" />
       </div>
     </el-card>
   </div>

@@ -4,7 +4,7 @@
     <div class="page-header animate-fade-in-up">
       <div class="page-header-content">
         <h1 class="page-title">进销商品分析</h1>
-        <p class="page-subtitle">按时间段统计进货与销售的商品明细</p>
+        <p class="page-subtitle">按时间段统计进货、销售与零售的商品明细</p>
       </div>
       <div class="page-header-decoration">
         <div class="decoration-dot dot-1"></div>

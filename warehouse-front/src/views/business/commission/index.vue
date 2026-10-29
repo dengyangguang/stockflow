@@ -13,7 +13,7 @@
             <el-icon :size="56" color="#409EFF"><DataAnalysis /></el-icon>
           </div>
           <h2>月度提成计算</h2>
-          <p>选择月份和提成规则，系统将自动汇总该月所有销售记录，按规则计算每位店员的提成金额</p>
+          <p>选择月份和提成规则，系统将汇总该月商品销售与散客零售，按规则计算每位店员的提成金额</p>
           <el-button type="primary" size="large" @click="openCalcDialog" class="calc-hero-btn">
             <el-icon style="margin-right: 8px;"><Cpu /></el-icon> 开始计算
           </el-button>

@@ -65,6 +65,7 @@
         ref="permTreeRef"
         :data="permTree"
         show-checkbox
+        check-strictly
         node-key="id"
         :default-checked-keys="checkedKeys"
         :props="{ label: 'title', children: 'children' }"

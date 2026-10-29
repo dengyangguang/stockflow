@@ -24,6 +24,10 @@ export function loadGoodsForPOS(params: { page?: number; limit?: number; keyword
   return request.get('/goods/loadGoodsForPOS', { params })
 }
 
+export function findGoodsByBarcode(barcode: string, warehouseId?: number) {
+  return request.get('/goods/findByBarcode', { params: { barcode, warehouseId } })
+}
+
 export function loadGoodsByProviderId(providerid: number, allStatus?: number, warehouseId?: number) {
   return request.get('/goods/loadGoodsByProviderId', { params: { providerid, allStatus, warehouseId } })
 }

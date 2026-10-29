@@ -11,6 +11,7 @@ import com.sunlee.bus.service.IStocktakeService;
 import com.sunlee.bus.vo.StocktakeVo;
 import com.sunlee.sys.annotation.OperationLog;
 import com.sunlee.sys.common.DataGridView;
+import com.sunlee.sys.common.CostPricePermission;
 import com.sunlee.sys.common.ResultObj;
 import com.sunlee.sys.common.WebUtils;
 import com.sunlee.sys.entity.User;
@@ -54,6 +55,9 @@ public class StocktakeController {
 
     @Autowired
     private IWarehouseService warehouseService;
+
+    @Autowired
+    private CostPricePermission costPricePermission;
 
     /**
      * 查询盘点单列表
@@ -106,6 +110,9 @@ public class StocktakeController {
             List<Goods> goodsList = goodsService.listByIds(goodsIds);
             Map<Integer, String> goodsMap = goodsList.stream().collect(Collectors.toMap(Goods::getId, Goods::getGoodsname, (a, b) -> a));
             Map<Integer, Integer> goodsProviderMap = goodsList.stream().filter(g -> g.getProviderid() != null).collect(Collectors.toMap(Goods::getId, Goods::getProviderid, (a, b) -> a));
+            Map<Integer, Double> goodsCostMap = costPricePermission.canView()
+                ? goodsList.stream().filter(g -> g.getCostPrice() != null).collect(Collectors.toMap(Goods::getId, Goods::getCostPrice, (a, b) -> a))
+                : java.util.Collections.emptyMap();
             Set<Integer> providerIds = goodsProviderMap.values().stream().collect(Collectors.toSet());
             Map<Integer, String> providerNameMap = new java.util.HashMap<>();
             if (!providerIds.isEmpty()) {
@@ -113,6 +120,7 @@ public class StocktakeController {
             }
             for (StocktakeItem item : items) {
                 item.setGoodsname(goodsMap.get(item.getGoodsid()));
+                item.setCostPrice(goodsCostMap.get(item.getGoodsid()));
                 Integer pid = goodsProviderMap.get(item.getGoodsid());
                 if (pid != null) {
                     item.setProvidername(providerNameMap.get(pid));

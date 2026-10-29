@@ -2,10 +2,12 @@ package com.sunlee.sys.controller;
 
 
 import cn.hutool.core.util.IdUtil;
+import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sunlee.sys.common.*;
+import com.sunlee.sys.annotation.OperationLog;
 import com.sunlee.sys.entity.Dept;
 import com.sunlee.sys.entity.Role;
 import com.sunlee.sys.entity.User;
@@ -187,6 +189,27 @@ public class UserController {
             log.error("添加用户失败: {}", e.getMessage(), e);
             return ResultObj.error("添加失败: " + e.getMessage());
         }
+    }
+
+    /** 管理员重置员工密码，随机临时密码只在本次响应中显示。 */
+    @OperationLog(type = "重置密码", module = "人员管理", description = "'重置用户ID: ' + #args[0]")
+    @RequestMapping("resetPwd/{id}")
+    public ResultObj resetPwd(@PathVariable("id") Integer id) {
+        if (id == null) return ResultObj.error("用户ID不能为空");
+        User target = userService.getById(id);
+        if (target == null) return ResultObj.error("用户不存在");
+        if (Constast.USER_TYPE_SUPER.equals(target.getType())) {
+            return ResultObj.error("不能重置超级管理员密码");
+        }
+        String temporaryPassword = generateRandomPassword(12);
+        String salt = IdUtil.simpleUUID().toUpperCase();
+        User update = new User();
+        update.setId(id);
+        update.setSalt(salt);
+        update.setPwd(md5Hash(temporaryPassword, salt, Constast.HASHITERATIONS));
+        if (!userService.updateById(update)) return ResultObj.error("重置失败");
+        StpUtil.logout(id);
+        return ResultObj.ok("临时密码：" + temporaryPassword + "。请员工登录后立即修改密码。");
     }
 
     /**

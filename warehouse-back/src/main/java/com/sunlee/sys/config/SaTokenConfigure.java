@@ -72,6 +72,7 @@ public class SaTokenConfigure implements WebMvcConfigurer {
         URL_PERM_MAP.put("/user/initRoleByUserId", "user:view");
         URL_PERM_MAP.put("/user/addUser", "user:create");
         URL_PERM_MAP.put("/user/updateUser", "user:update");
+        URL_PERM_MAP.put("/user/resetPwd", "user:update");
         URL_PERM_MAP.put("/user/deleteUser", "user:delete");
         URL_PERM_MAP.put("/user/saveUserRole", "user:selectRole");
         // 角色
@@ -132,6 +133,7 @@ public class SaTokenConfigure implements WebMvcConfigurer {
         URL_PERM_MAP.put("/goods/loadAllGoods", "goods:view");
         URL_PERM_MAP.put("/goods/loadAllGoodsForSelect", "goods:view");
         URL_PERM_MAP.put("/goods/loadGoodsForPOS", "goods:view");
+        URL_PERM_MAP.put("/goods/findByBarcode", "goods:view");
         URL_PERM_MAP.put("/goods/loadGoodsByProviderId", "goods:view");
         URL_PERM_MAP.put("/goods/loadAllWarningGoods", "goods:view");
         URL_PERM_MAP.put("/goods/addGoods", "goods:create");
@@ -141,12 +143,13 @@ public class SaTokenConfigure implements WebMvcConfigurer {
         URL_PERM_MAP.put("/goods/deleteGoods", "goods:delete");
         // 会员（等级规则权限码为 level:*）
         URL_PERM_MAP.put("/member/loadAllMember", "member:view");
-        URL_PERM_MAP.put("/member/findMember", "member:view");
+        URL_PERM_MAP.put("/member/findMember", "retail:create");
         URL_PERM_MAP.put("/member/loadMemberRecords", "member:view");
         URL_PERM_MAP.put("/member/addMember", "member:create");
         URL_PERM_MAP.put("/member/updateMember", "member:update");
         URL_PERM_MAP.put("/member/recharge", "member:update");
         URL_PERM_MAP.put("/member/consume", "member:update");
+        URL_PERM_MAP.put("/member/setPaymentPin", "member:update");
         URL_PERM_MAP.put("/member/deleteMember", "member:delete");
         URL_PERM_MAP.put("/member/loadLevelRules", "level:view");
         URL_PERM_MAP.put("/member/saveLevelRule", "level:update");
@@ -202,6 +205,10 @@ public class SaTokenConfigure implements WebMvcConfigurer {
         URL_PERM_MAP.put("/retail/loadReturnAddRecords", "retail:view");
         URL_PERM_MAP.put("/retail/addRetail", "retail:create");
         URL_PERM_MAP.put("/retail/batchAddRetail", "retail:create");
+        URL_PERM_MAP.put("/retail/checkoutMember", "retail:create");
+        URL_PERM_MAP.put("/retail/checkoutShoppingCard", "retail:create");
+        URL_PERM_MAP.put("/retail/loadShoppingCardRate", "retail:create");
+        URL_PERM_MAP.put("/retail/saveShoppingCardRate", "retail:update");
         URL_PERM_MAP.put("/retail/addToOrder", "retail:create");
         URL_PERM_MAP.put("/retail/updateRetail", "retail:update");
         URL_PERM_MAP.put("/retail/deleteRetail", "retail:delete");

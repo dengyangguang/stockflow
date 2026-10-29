@@ -2,104 +2,82 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.sunlee.bus.mapper.SalesMapper">
 
-    <select id="querySalesAnalysis" resultType="java.util.Map">
+    <!-- 报表统一使用销售与零售的未退剩余数量；两种业务分别有自己的开单时间和单价。 -->
+    <sql id="reportSaleLines">
+        SELECT goodsid, saleprice AS price, number, salestime AS sale_time
+        FROM bus_sales
+        WHERE isdelete = 0 AND IFNULL(order_status, 0) = 0 AND number &gt; 0
+        UNION ALL
+        SELECT goodsid, retailprice AS price, number, retailtime AS sale_time
+        FROM bus_retail
+        WHERE isdelete = 0 AND IFNULL(order_status, 0) = 0 AND number &gt; 0
+    </sql>
+
+    <sql id="reportSalesByTime">
         <choose>
             <when test="type == 'today' or type == 'yesterday'">
-                SELECT HOUR(salestime) AS label, IFNULL(SUM(saleprice * number), 0) AS total
-                FROM bus_sales
-                WHERE isdelete = 0 AND DATE(salestime) &gt;= #{startDate} AND DATE(salestime) &lt;= #{endDate}
-                GROUP BY HOUR(salestime)
+                SELECT HOUR(s.sale_time) AS label, IFNULL(SUM(s.price * s.number), 0) AS total
+                FROM (<include refid="reportSaleLines" />) s
+                WHERE DATE(s.sale_time) &gt;= #{startDate} AND DATE(s.sale_time) &lt;= #{endDate}
+                GROUP BY HOUR(s.sale_time)
                 ORDER BY label
             </when>
             <when test="type == 'week'">
-                SELECT DAYOFWEEK(salestime) - 1 AS label, IFNULL(SUM(saleprice * number), 0) AS total
-                FROM bus_sales
-                WHERE isdelete = 0 AND DATE(salestime) &gt;= #{startDate} AND DATE(salestime) &lt;= #{endDate}
-                GROUP BY DAYOFWEEK(salestime) - 1
+                SELECT DAYOFWEEK(s.sale_time) - 1 AS label, IFNULL(SUM(s.price * s.number), 0) AS total
+                FROM (<include refid="reportSaleLines" />) s
+                WHERE DATE(s.sale_time) &gt;= #{startDate} AND DATE(s.sale_time) &lt;= #{endDate}
+                GROUP BY DAYOFWEEK(s.sale_time) - 1
                 ORDER BY label
             </when>
             <when test="type == 'month'">
-                SELECT DAY(salestime) AS label, IFNULL(SUM(saleprice * number), 0) AS total
-                FROM bus_sales
-                WHERE isdelete = 0 AND DATE(salestime) &gt;= #{startDate} AND DATE(salestime) &lt;= #{endDate}
-                GROUP BY DAY(salestime)
+                SELECT DAY(s.sale_time) AS label, IFNULL(SUM(s.price * s.number), 0) AS total
+                FROM (<include refid="reportSaleLines" />) s
+                WHERE DATE(s.sale_time) &gt;= #{startDate} AND DATE(s.sale_time) &lt;= #{endDate}
+                GROUP BY DAY(s.sale_time)
                 ORDER BY label
             </when>
             <when test="type == 'custom'">
-                SELECT DATE_FORMAT(salestime, '%Y%m%d') AS label, IFNULL(SUM(saleprice * number), 0) AS total
-                FROM bus_sales
-                WHERE isdelete = 0 AND DATE(salestime) &gt;= #{startDate} AND DATE(salestime) &lt;= #{endDate}
-                GROUP BY DATE(salestime)
+                SELECT DATE_FORMAT(s.sale_time, '%Y%m%d') AS label, IFNULL(SUM(s.price * s.number), 0) AS total
+                FROM (<include refid="reportSaleLines" />) s
+                WHERE DATE(s.sale_time) &gt;= #{startDate} AND DATE(s.sale_time) &lt;= #{endDate}
+                GROUP BY DATE(s.sale_time)
                 ORDER BY label
             </when>
             <when test="type == 'quarter' or type == 'year'">
-                SELECT MONTH(salestime) AS label, IFNULL(SUM(saleprice * number), 0) AS total
-                FROM bus_sales
-                WHERE isdelete = 0 AND DATE(salestime) &gt;= #{startDate} AND DATE(salestime) &lt;= #{endDate}
-                GROUP BY MONTH(salestime)
+                SELECT MONTH(s.sale_time) AS label, IFNULL(SUM(s.price * s.number), 0) AS total
+                FROM (<include refid="reportSaleLines" />) s
+                WHERE DATE(s.sale_time) &gt;= #{startDate} AND DATE(s.sale_time) &lt;= #{endDate}
+                GROUP BY MONTH(s.sale_time)
                 ORDER BY label
             </when>
         </choose>
+    </sql>
+
+    <select id="querySalesAnalysis" resultType="java.util.Map">
+        <include refid="reportSalesByTime" />
     </select>
 
     <select id="querySalesGoodsAnalysis" resultType="java.util.Map">
         SELECT g.goodsname AS goodsname,
                IFNULL(SUM(s.number), 0) AS totalNumber,
-               s.saleprice AS price,
-               IFNULL(SUM(s.saleprice * s.number), 0) AS totalAmount
-        FROM bus_sales s
+               s.price AS price,
+               IFNULL(SUM(s.price * s.number), 0) AS totalAmount
+        FROM (<include refid="reportSaleLines" />) s
         LEFT JOIN bus_goods g ON s.goodsid = g.id
         <where>
-            s.isdelete = 0
             <if test="startDate != null and startDate != ''">
-                AND DATE(s.salestime) &gt;= #{startDate}
+                AND DATE(s.sale_time) &gt;= #{startDate}
             </if>
             <if test="endDate != null and endDate != ''">
-                AND DATE(s.salestime) &lt;= #{endDate}
+                AND DATE(s.sale_time) &lt;= #{endDate}
             </if>
         </where>
-        GROUP BY s.goodsid, s.saleprice
+        GROUP BY s.goodsid, s.price
         ORDER BY totalAmount DESC
     </select>
 
     <select id="querySalesRevenueAnalysis" resultType="java.util.Map">
-        <choose>
-            <when test="type == 'today' or type == 'yesterday'">
-                SELECT HOUR(salestime) AS label, IFNULL(SUM(saleprice * number), 0) AS total
-                FROM bus_sales
-                WHERE isdelete = 0 AND DATE(salestime) &gt;= #{startDate} AND DATE(salestime) &lt;= #{endDate}
-                GROUP BY HOUR(salestime)
-                ORDER BY label
-            </when>
-            <when test="type == 'week'">
-                SELECT DAYOFWEEK(salestime) - 1 AS label, IFNULL(SUM(saleprice * number), 0) AS total
-                FROM bus_sales
-                WHERE isdelete = 0 AND DATE(salestime) &gt;= #{startDate} AND DATE(salestime) &lt;= #{endDate}
-                GROUP BY DAYOFWEEK(salestime) - 1
-                ORDER BY label
-            </when>
-            <when test="type == 'month'">
-                SELECT DAY(salestime) AS label, IFNULL(SUM(saleprice * number), 0) AS total
-                FROM bus_sales
-                WHERE isdelete = 0 AND DATE(salestime) &gt;= #{startDate} AND DATE(salestime) &lt;= #{endDate}
-                GROUP BY DAY(salestime)
-                ORDER BY label
-            </when>
-            <when test="type == 'custom'">
-                SELECT DATE_FORMAT(salestime, '%Y%m%d') AS label, IFNULL(SUM(saleprice * number), 0) AS total
-                FROM bus_sales
-                WHERE isdelete = 0 AND DATE(salestime) &gt;= #{startDate} AND DATE(salestime) &lt;= #{endDate}
-                GROUP BY DATE(salestime)
-                ORDER BY label
-            </when>
-            <when test="type == 'quarter' or type == 'year'">
-                SELECT MONTH(salestime) AS label, IFNULL(SUM(saleprice * number), 0) AS total
-                FROM bus_sales
-                WHERE isdelete = 0 AND DATE(salestime) &gt;= #{startDate} AND DATE(salestime) &lt;= #{endDate}
-                GROUP BY MONTH(salestime)
-                ORDER BY label
-            </when>
-        </choose>
+        <include refid="reportSalesByTime" />
     </select>
 
     <!-- 销售订单分组分页查询（按订单号分组，联查客户名称） -->

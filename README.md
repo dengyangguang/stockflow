@@ -258,7 +258,40 @@ npm install
 npm run dev
 ```
 
-前端运行在 `http://localhost:5173`，自动代理 `/warehouse/*` 到后端 8899 端口。
+前端运行在 `http://localhost:8888`，自动代理 `/warehouse/*` 到后端 8899 端口。
+
+### 🐳 Docker Compose 开发调试（macOS / Mac mini）
+
+仓库根目录提供 `compose.yaml`，用于本地开发调试。容器包含 MySQL 8、Java 21 后端和 Vite 前端；前后端源码目录会挂载进容器，前端支持热更新。修改 Java 代码后重启后端容器即可重新编译启动。
+
+首次启动前，在仓库根目录执行：
+
+```bash
+cp .env.docker.example .env.docker
+```
+
+按需修改 `.env.docker` 中的本地数据库密码，然后启动：
+
+```bash
+docker compose --env-file .env.docker up --build
+```
+
+- Web 前端：`http://localhost:8888`
+- 后端 API：`http://localhost:8899/warehouse`
+- Swagger：`http://localhost:8899/warehouse/swagger-ui/index.html`
+- MySQL：本机端口 `3307`（可在 `.env.docker` 中修改）
+
+常用调试命令：
+
+```bash
+docker compose --env-file .env.docker logs -f backend
+docker compose --env-file .env.docker restart backend
+docker compose --env-file .env.docker down
+```
+
+初始化数据库脚本会在 MySQL 数据卷首次创建时自动导入；之后修改 SQL 初始化文件不会覆盖现有数据。`down` 会保留数据库，`down -v` 会删除数据库数据卷，请只在确认不需要保留调试数据时使用。此 Compose 配置面向本地/LAN 调试，不建议直接暴露到公网。手机在同一 Wi-Fi 下可通过 `http://Mac-mini的局域网IP:8888` 访问，需允许 macOS 防火墙的入站连接。
+
+已有数据库升级商品条码和参考成本价功能时，先备份数据库，再按顺序执行一次 `mysql/migrations/20261025_add_goods_barcode.sql`、`mysql/migrations/20261025_add_goods_cost_price.sql` 与 `mysql/migrations/20261025_add_cost_price_permission.sql`，然后重启后端。新建数据库会通过 `mysql/warehouse.sql` 自动创建这两列和“查看商品成本价”权限。默认只有超级管理员可以看到参考成本价；要让其他人员看到，在“角色管理 → 分配权限 → 商品管理”中单独勾选“查看商品成本价”。该权限控制商品资料、扫码商品接口与库存盘点明细中的参考成本价，取消授权后后端立即停止返回该字段的数值；人员刷新页面可更新界面。进货时可在清单中修改本次实际进货单价，该价格保存在进货单，进货订单另受进货模块权限控制。零售页用同一个搜索框输入商品名称/拼音或扫描条码，扫码枪设为扫码后发送回车，匹配到条码后即可自动加入购物车。新员工初始密码和管理员重置后的临时密码只在操作完成时显示一次，请记录后交给员工，员工登录后可在“修改密码”页面更改。
 
 ### 📱 移动端启动
 

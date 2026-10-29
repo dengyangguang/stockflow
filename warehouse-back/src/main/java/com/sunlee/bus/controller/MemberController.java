@@ -9,6 +9,7 @@ import com.sunlee.bus.entity.MemberRecord;
 import com.sunlee.bus.service.IMemberLevelRuleService;
 import com.sunlee.bus.service.IMemberRecordService;
 import com.sunlee.bus.service.IMemberService;
+import com.sunlee.bus.service.MemberPaymentPinService;
 import com.sunlee.bus.service.impl.MemberServiceImpl;
 import com.sunlee.bus.vo.MemberVo;
 import com.sunlee.sys.annotation.OperationLog;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 会员管理
@@ -44,6 +46,24 @@ public class MemberController {
 
     @Autowired
     private IMemberLevelRuleService memberLevelRuleService;
+
+    @Autowired
+    private MemberPaymentPinService paymentPinService;
+
+    @OperationLog(type = "修改", module = "会员管理", description = "'设置会员支付密码'")
+    @RequestMapping("setPaymentPin")
+    public ResultObj setPaymentPin(Integer memberId, String paymentPin) {
+        try {
+            if (memberId == null || memberService.getById(memberId) == null) {
+                return ResultObj.error("会员不存在");
+            }
+            paymentPinService.setPin(memberId, paymentPin);
+            return ResultObj.ok("支付密码设置成功");
+        } catch (Exception e) {
+            log.error("设置会员支付密码失败: {}", e.getMessage(), e);
+            return ResultObj.error(e.getMessage());
+        }
+    }
 
     /**
      * 查询会员列表
@@ -66,13 +86,23 @@ public class MemberController {
      */
     @RequestMapping("findMember")
     public DataGridView findMember(String keyword) {
-        QueryWrapper<Member> qw = new QueryWrapper<>();
-        if (StringUtils.isNotBlank(keyword)) {
-            qw.and(w -> w.like("phone", keyword).or().like("member_no", keyword).or().like("name", keyword));
+        if (StringUtils.isBlank(keyword)) {
+            return new DataGridView(0L, List.of());
         }
+        QueryWrapper<Member> qw = new QueryWrapper<>();
+        String search = keyword.trim();
+        qw.and(w -> w.like("phone", search).or().like("member_no", search).or().like("name", search));
         qw.eq("status", 1);
+        qw.last("LIMIT 20");
         List<Member> list = memberService.list(qw);
-        return new DataGridView((long) list.size(), list);
+        List<Map<String, Object>> result = list.stream().map(member -> Map.<String, Object>of(
+                "id", member.getId(),
+                "name", member.getName() != null ? member.getName() : "",
+                "memberNo", member.getMemberNo() != null ? member.getMemberNo() : "",
+                "phone", member.getPhone() != null ? member.getPhone() : "",
+                "balance", member.getBalance() != null ? member.getBalance() : BigDecimal.ZERO
+        )).toList();
+        return new DataGridView((long) result.size(), result);
     }
 
     /**
@@ -105,7 +135,16 @@ public class MemberController {
     @RequestMapping("updateMember")
     public ResultObj updateMember(MemberVo memberVo) {
         try {
-            memberService.updateById(memberVo);
+            if (memberVo.getId() == null || memberService.getById(memberVo.getId()) == null) {
+                return ResultObj.error("会员不存在");
+            }
+            Member update = new Member();
+            update.setId(memberVo.getId());
+            update.setName(memberVo.getName());
+            update.setPhone(memberVo.getPhone());
+            update.setGender(memberVo.getGender());
+            update.setRemark(memberVo.getRemark());
+            memberService.updateById(update);
             return ResultObj.UPDATE_SUCCESS;
         } catch (Exception e) {
             log.error("修改会员失败: {}", e.getMessage(), e);
@@ -135,8 +174,12 @@ public class MemberController {
      */
     @OperationLog(type = "消费", module = "会员管理", description = "'会员消费ID: ' + #args[0] + ', 金额: ' + #args[1]")
     @RequestMapping("consume")
-    public ResultObj consume(Integer memberId, BigDecimal amount) {
+    public ResultObj consume(Integer memberId, BigDecimal amount, String paymentPin) {
         try {
+            String pinError = paymentPinService.verify(memberId, paymentPin);
+            if (pinError != null) {
+                return ResultObj.error(pinError);
+            }
             User user = (User) WebUtils.getSession().getAttribute("user");
             String operator = user != null ? user.getName() : "未知用户";
             memberService.consume(memberId, amount, operator, "储值卡消费");

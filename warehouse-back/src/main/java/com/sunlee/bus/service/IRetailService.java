@@ -6,10 +6,13 @@ import com.sunlee.bus.vo.RetailVo;
 import com.sunlee.sys.common.DataGridView;
 
 import java.util.List;
+import java.math.BigDecimal;
 
 public interface IRetailService extends IService<Retail> {
     void deleteRetail(Integer id);
     void batchSave(List<Retail> list);
+    void checkoutMember(List<Retail> list, Integer memberId, String operator);
+    void checkoutShoppingCard(List<Retail> list, BigDecimal expectedRate);
 
     /**
      * 查询零售订单列表（按订单号分组）

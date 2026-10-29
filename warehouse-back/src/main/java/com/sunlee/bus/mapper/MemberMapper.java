@@ -26,5 +26,6 @@ public interface MemberMapper extends BaseMapper<Member> {
      * 原子退款：余额增加
      * @return 受影响行数
      */
-    int addBalance(@Param("id") Integer id, @Param("amount") BigDecimal amount);
+    int refundConsumption(@Param("id") Integer id, @Param("amount") BigDecimal amount,
+                          @Param("points") int points);
 }

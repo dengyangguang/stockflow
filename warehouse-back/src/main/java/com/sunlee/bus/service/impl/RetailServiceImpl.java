@@ -14,10 +14,13 @@ import com.sunlee.bus.mapper.RetailMapper;
 import com.sunlee.bus.mapper.RetailbackMapper;
 import com.sunlee.bus.service.IGoodsStockService;
 import com.sunlee.bus.service.IRetailService;
+import com.sunlee.bus.service.IMemberService;
+import com.sunlee.bus.service.ShoppingCardService;
 import com.sunlee.bus.vo.RetailVo;
 import com.sunlee.sys.common.DataGridView;
 
 import java.util.Date;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -41,6 +44,79 @@ public class RetailServiceImpl extends ServiceImpl<RetailMapper, Retail> impleme
     @Autowired
     private IGoodsStockService goodsStockService;
 
+    @Autowired
+    private IMemberService memberService;
+
+    @Autowired
+    private ShoppingCardService shoppingCardService;
+
+    private Goods verifyCurrentPrice(Retail retail) {
+        Goods goods = goodsMapper.selectById(retail.getGoodsid());
+        if (goods == null || goods.getAvailable() == null || goods.getAvailable() != 1
+                || goods.getPrice() == null || goods.getPrice() <= 0) {
+            throw new IllegalArgumentException("商品不存在、已下架或售价无效");
+        }
+        if (retail.getRetailprice() == null || BigDecimal.valueOf(goods.getPrice())
+                .compareTo(BigDecimal.valueOf(retail.getRetailprice())) != 0) {
+            throw new IllegalArgumentException("商品售价已变化，请刷新页面重新结算: " + goods.getGoodsname());
+        }
+        return goods;
+    }
+
+    @Override
+    public void checkoutShoppingCard(List<Retail> list, BigDecimal expectedRate) {
+        BigDecimal rate = shoppingCardService.getRate();
+        if (rate == null) {
+            throw new IllegalStateException("请先设置超市购物卡扣点率");
+        }
+        if (expectedRate == null || expectedRate.compareTo(rate) != 0) {
+            throw new IllegalStateException("扣点率已变化，请刷新页面后重新结算");
+        }
+        for (Retail retail : list) {
+            Goods goods = verifyCurrentPrice(retail);
+            retail.setRetailprice(goods.getPrice());
+            retail.setPaytype("超市购物卡");
+            retail.setMemberId(null);
+        }
+        batchSave(list);
+        shoppingCardService.record(list.get(0).getOrderno(), rate, list);
+    }
+
+    private BigDecimal amount(Retail retail, int quantity) {
+        return BigDecimal.valueOf(retail.getRetailprice()).multiply(BigDecimal.valueOf(quantity));
+    }
+
+    private void refundMember(Retail retail, int quantity) {
+        BigDecimal refundAmount = amount(retail, quantity);
+        List<RetailLog> previousReturns = retailLogMapper.selectList(new QueryWrapper<RetailLog>()
+                .eq("order_no", retail.getOrderno()).eq("type", "return"));
+        BigDecimal refundedBefore = previousReturns.stream()
+                .map(log -> BigDecimal.valueOf(log.getPrice()).multiply(BigDecimal.valueOf(log.getNumber())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // 消费时按整单金额取整送积分；分次退款按累计退款金额计算本次应冲回的积分。
+        int points = refundedBefore.add(refundAmount).intValue() - refundedBefore.intValue();
+        memberService.refund(retail.getMemberId(), refundAmount, points, retail.getOperateperson(),
+                "零售订单退货 " + retail.getOrderno());
+    }
+
+    @Override
+    public void checkoutMember(List<Retail> list, Integer memberId, String operator) {
+        if (memberId == null || list == null || list.isEmpty()) {
+            throw new IllegalArgumentException("请选择会员和商品");
+        }
+        BigDecimal total = BigDecimal.ZERO;
+        for (Retail retail : list) {
+            Goods goods = verifyCurrentPrice(retail);
+            // 余额扣款以数据库当前售价为准，不接受客户端传入的价格。
+            retail.setRetailprice(goods.getPrice());
+            retail.setPaytype("会员余额");
+            retail.setMemberId(memberId);
+            total = total.add(amount(retail, retail.getNumber()));
+        }
+        batchSave(list);
+        memberService.consume(memberId, total, operator, "零售订单 " + list.get(0).getOrderno());
+    }
+
     @Override
     public boolean save(Retail entity) {
         Goods goods = goodsMapper.selectById(entity.getGoodsid());
@@ -60,6 +136,13 @@ public class RetailServiceImpl extends ServiceImpl<RetailMapper, Retail> impleme
         if (retail == null) {
             throw new RuntimeException("零售记录不存在: " + entity.getId());
         }
+        if (retail.getMemberId() != null || "超市购物卡".equals(retail.getPaytype())) {
+            throw new RuntimeException("该支付方式的订单请通过退货处理，不能直接编辑");
+        }
+        if ("会员余额".equals(entity.getPaytype()) || "超市购物卡".equals(entity.getPaytype())) {
+            throw new RuntimeException("该支付方式请使用零售结算");
+        }
+        entity.setMemberId(null);
         // 禁止编辑时更换商品：库存按商品维度差量调整，换商品会导致新旧商品库存都错账
         if (!retail.getGoodsid().equals(entity.getGoodsid())) {
             throw new RuntimeException("编辑单据不允许更换商品，请删除原单后重新开单");
@@ -97,6 +180,9 @@ public class RetailServiceImpl extends ServiceImpl<RetailMapper, Retail> impleme
         Retail retail = baseMapper.selectById(id);
         if (retail == null) {
             throw new RuntimeException("零售记录不存在: " + id);
+        }
+        if (retail.getMemberId() != null || "超市购物卡".equals(retail.getPaytype())) {
+            throw new RuntimeException("该支付方式的订单请通过退货处理，不能直接删除");
         }
         // 级联软删除该零售单关联的所有退货记录
         Retailback retailbackUpdate = new Retailback();
@@ -181,6 +267,10 @@ public class RetailServiceImpl extends ServiceImpl<RetailMapper, Retail> impleme
         // 回滚商品库存（按原出库仓回库）
         goodsStockService.increase(retail.getGoodsid(), retail.getWarehouseId(), returnQty);
 
+        if (retail.getMemberId() != null) {
+            refundMember(retail, returnQty);
+        }
+
         // 记录退货日志
         RetailLog log = new RetailLog();
         log.setOrderNo(retail.getOrderno());
@@ -203,6 +293,9 @@ public class RetailServiceImpl extends ServiceImpl<RetailMapper, Retail> impleme
         }
 
         checkOrderReturnComplete(retail.getOrderno());
+        if ("超市购物卡".equals(retail.getPaytype())) {
+            shoppingCardService.recalculate(retail.getOrderno(), queryOrderDetail(retail.getOrderno()));
+        }
     }
 
     @Override
@@ -222,6 +315,9 @@ public class RetailServiceImpl extends ServiceImpl<RetailMapper, Retail> impleme
             }
             // 回滚商品库存（按原出库仓回库）
             goodsStockService.increase(retail.getGoodsid(), retail.getWarehouseId(), retail.getNumber());
+            if (retail.getMemberId() != null) {
+                refundMember(retail, retail.getNumber());
+            }
 
             RetailLog log = new RetailLog();
             log.setOrderNo(retail.getOrderno());
@@ -240,6 +336,9 @@ public class RetailServiceImpl extends ServiceImpl<RetailMapper, Retail> impleme
             finish.setId(retail.getId());
             finish.setOrderStatus(1);
             baseMapper.updateById(finish);
+        }
+        if (!list.isEmpty() && "超市购物卡".equals(list.get(0).getPaytype())) {
+            shoppingCardService.recalculate(orderNo, queryOrderDetail(orderNo));
         }
     }
 
@@ -266,9 +365,21 @@ public class RetailServiceImpl extends ServiceImpl<RetailMapper, Retail> impleme
         }
 
         String orderNo = list.get(0).getOrderno();
+        if (orderNo == null || orderNo.isBlank()) {
+            throw new RuntimeException("订单号不能为空");
+        }
+        List<Retail> existingOrder = queryOrderDetail(orderNo);
+        if (existingOrder.isEmpty()) {
+            throw new RuntimeException("订单不存在");
+        }
+        if (existingOrder.stream().anyMatch(item -> item.getMemberId() != null
+                || "超市购物卡".equals(item.getPaytype()))) {
+            throw new RuntimeException("该支付方式的订单暂不支持加货，请新开一单");
+        }
 
         for (Retail retail : list) {
             retail.setOrderno(orderNo);
+            retail.setMemberId(null);
 
             // 原子扣减分仓库存，该仓库存不足则整批回滚（未指定仓库时落默认仓）
             Goods goods = goodsMapper.selectById(retail.getGoodsid());

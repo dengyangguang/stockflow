@@ -22,6 +22,26 @@ export function batchAddRetail(data: any[]) {
   })
 }
 
+export function checkoutMember(memberId: number, paymentPin: string, items: any[]) {
+  return request.post('/retail/checkoutMember', { memberId, paymentPin, items }, {
+    headers: { 'Content-Type': 'application/json' }
+  })
+}
+
+export function loadShoppingCardRate() {
+  return request.get('/retail/loadShoppingCardRate')
+}
+
+export function saveShoppingCardRate(ratePercent: number) {
+  return request.post('/retail/saveShoppingCardRate', { ratePercent })
+}
+
+export function checkoutShoppingCard(expectedRate: number, items: any[]) {
+  return request.post('/retail/checkoutShoppingCard', { expectedRate, items }, {
+    headers: { 'Content-Type': 'application/json' }
+  })
+}
+
 export function loadAllOrders(params: any) {
   return request.get('/retail/loadAllOrders', { params })
 }

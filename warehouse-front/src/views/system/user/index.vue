@@ -168,7 +168,19 @@ const handleSearch = () => tableRef.value?.reload()
 const handleReset = () => { searchParams.name = ''; searchParams.address = ''; searchParams.deptid = null }
 const handleAdd = () => { isEdit.value = false; dialogRef.value?.open({ sex: 1, available: 1, ordernum: 1, imgpath: '' }, false) }
 const handleEdit = (row: any) => { isEdit.value = true; dialogRef.value?.open(row, true) }
-const handleSubmitApi = (data: any) => isEdit.value ? updateUser(data) : addUser(data)
+const handleSubmitApi = async (data: any) => {
+  if (isEdit.value) return updateUser(data)
+  const res: any = await addUser(data)
+  if (res.code === 200) {
+    await ElMessageBox.alert(res.msg, '新员工初始密码', {
+      confirmButtonText: '我已记录',
+      closeOnClickModal: false,
+      closeOnPressEscape: false
+    })
+    return { ...res, msg: '人员添加成功' }
+  }
+  return res
+}
 
 const handleDelete = async (row: any) => {
   await ElMessageBox.confirm('确认删除该用户？', '提示', { type: 'warning' })
@@ -177,9 +189,15 @@ const handleDelete = async (row: any) => {
 }
 
 const handleResetPwd = async (row: any) => {
-  await ElMessageBox.confirm(`确认重置 ${row.name} 的密码为123456？`, '提示', { type: 'warning' })
+  await ElMessageBox.confirm(`确认重置 ${row.name} 的密码？系统会生成新的临时密码。`, '提示', { type: 'warning' })
   const res: any = await resetPwd(row.id)
-  if (res.code === 200) ElMessage.success('重置成功')
+  if (res.code === 200) {
+    await ElMessageBox.alert(res.msg, `${row.name} 的临时密码`, {
+      confirmButtonText: '我已记录',
+      closeOnClickModal: false,
+      closeOnPressEscape: false
+    })
+  }
 }
 
 const handleNameChange = async (formData: any) => {

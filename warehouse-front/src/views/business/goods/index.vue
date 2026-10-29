@@ -8,6 +8,9 @@
         <el-form-item label="产品编码">
           <el-input v-model="searchParams.productcode" placeholder="产品编码" clearable />
         </el-form-item>
+        <el-form-item label="商品条码">
+          <el-input v-model="searchParams.barcode" placeholder="扫描或输入条码" clearable @keyup.enter="handleSearch" />
+        </el-form-item>
         <el-form-item label="供应商">
           <el-select v-model="searchParams.providerid" placeholder="全部" clearable filterable>
             <el-option v-for="p in providers" :key="p.id" :label="p.providername" :value="p.id" />
@@ -40,9 +43,13 @@
         <el-table-column prop="providername" label="供应商" />
         <el-table-column prop="categoryname" label="分类" />
         <el-table-column prop="productcode" label="产品编码" />
+        <el-table-column prop="barcode" label="商品条码" />
         <el-table-column prop="size" label="规格" />
         <el-table-column prop="goodspackage" label="单位" width="60" />
         <el-table-column prop="price" label="价格" width="80" />
+        <el-table-column v-if="canViewCost" prop="costPrice" label="参考成本价" width="110">
+          <template #default="{ row }">{{ row.costPrice == null ? '-' : `¥${row.costPrice.toFixed(2)}` }}</template>
+        </el-table-column>
         <el-table-column prop="number" :label="searchParams.warehouseId ? '该仓库存' : '库存'" width="90" />
         <el-table-column prop="dangernum" label="预警值" width="80" />
         <el-table-column label="附加属性" min-width="160">
@@ -102,6 +109,11 @@
             </el-form-item>
           </el-col>
           <el-col :span="8">
+            <el-form-item label="商品条码" prop="barcode">
+              <el-input v-model="formData.barcode" placeholder="用扫码枪扫描包装条码" @keyup.enter.prevent />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
             <el-form-item label="分类" prop="categoryid">
               <div style="display:flex;gap:4px;width:100%">
                 <el-select v-model="formData.categoryid" placeholder="选择分类" filterable style="flex:1">
@@ -141,6 +153,11 @@
           <el-col :span="8">
             <el-form-item label="价格" prop="price">
               <el-input-number v-model="formData.price" :min="0" :precision="2" />
+            </el-form-item>
+          </el-col>
+          <el-col v-if="canViewCost" :span="8">
+            <el-form-item label="参考成本价" prop="costPrice">
+              <el-input-number v-model="formData.costPrice" :min="0" :precision="2" placeholder="进货默认单价" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
@@ -214,7 +231,11 @@ import { loadAllProviderForSelect } from '@/api/provider'
 import { loadAllCategoryForSelect, addCategory } from '@/api/category'
 import { loadAllWarehouseForSelect } from '@/api/warehouse'
 import { getImageUrl } from '@/api/file'
+import { usePermission } from '@/composables/usePermission'
+import { computed } from 'vue'
 
+const { hasPermission } = usePermission()
+const canViewCost = computed(() => hasPermission('goods:cost:view'))
 const tableRef = ref()
 const dialogRef = ref()
 const categoryPopoverRef = ref()
@@ -233,6 +254,7 @@ watch(attrList, () => {
 const searchParams = reactive({
   goodsname: '',
   productcode: '',
+  barcode: '',
   attribute: '',
   providerid: null as number | null,
   categoryid: null as number | null,
@@ -250,6 +272,7 @@ const handleSearch = () => tableRef.value?.reload()
 const handleReset = () => {
   searchParams.goodsname = ''
   searchParams.productcode = ''
+  searchParams.barcode = ''
   searchParams.attribute = ''
   searchParams.providerid = null
   searchParams.categoryid = null

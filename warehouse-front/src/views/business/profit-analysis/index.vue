@@ -2,7 +2,7 @@
   <div>
     <div class="page-header animate-fade-in-up">
       <h1 class="page-header-title">利润分析</h1>
-      <p class="page-header-desc">按时间段统计销售额、进货成本与毛利润</p>
+      <p class="page-header-desc">按时间段统计销售与零售收入、进货金额及两者差额</p>
     </div>
 
     <el-card class="chart-card animate-fade-in-up delay-100">
@@ -14,7 +14,7 @@
             </div>
             <div class="header-text-group">
               <span class="header-title">利润趋势</span>
-              <span class="header-subtitle">销售额 - 进货成本 = 毛利润</span>
+              <span class="header-subtitle">销售收入 - 同期进货金额</span>
             </div>
           </div>
           <div class="card-header-right">
@@ -50,15 +50,15 @@
           <span class="summary-value sales">¥{{ formatMoney(totalSales) }}</span>
         </div>
         <div class="summary-item">
-          <span class="summary-label">总进货成本</span>
+          <span class="summary-label">同期进货金额</span>
           <span class="summary-value inport">¥{{ formatMoney(totalInport) }}</span>
         </div>
         <div class="summary-item">
-          <span class="summary-label">总毛利润</span>
+          <span class="summary-label">收支差额</span>
           <span class="summary-value" :class="totalProfit >= 0 ? 'profit' : 'loss'">¥{{ formatMoney(totalProfit) }}</span>
         </div>
         <div class="summary-item">
-          <span class="summary-label">毛利率</span>
+          <span class="summary-label">差额率</span>
           <span class="summary-value" :class="totalProfit >= 0 ? 'profit' : 'loss'">{{ profitRate }}%</span>
         </div>
       </div>
@@ -114,7 +114,7 @@ const buildOption = (labels: string[], sales: number[], inport: number[], profit
       return html
     }
   },
-  legend: { data: ['销售额', '进货成本', '毛利润'], top: 0 },
+  legend: { data: ['销售额', '同期进货金额', '收支差额'], top: 0 },
   grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true, top: 40 },
   xAxis: {
     type: 'category',
@@ -140,7 +140,7 @@ const buildOption = (labels: string[], sales: number[], inport: number[], profit
       }
     },
     {
-      name: '进货成本',
+      name: '同期进货金额',
       type: 'bar',
       barMaxWidth: 30,
       data: inport,
@@ -153,7 +153,7 @@ const buildOption = (labels: string[], sales: number[], inport: number[], profit
       }
     },
     {
-      name: '毛利润',
+      name: '收支差额',
       type: 'line',
       smooth: true,
       data: profit,

@@ -2,6 +2,7 @@ package com.sunlee.bus.controller;
 
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sunlee.bus.entity.*;
@@ -10,6 +11,7 @@ import com.sunlee.bus.vo.GoodsVo;
 import com.sunlee.sys.annotation.OperationLog;
 import com.sunlee.sys.common.AppFileUtils;
 import com.sunlee.sys.common.Constast;
+import com.sunlee.sys.common.CostPricePermission;
 import com.sunlee.sys.common.DataGridView;
 import com.sunlee.sys.common.PinyinUtils;
 import com.sunlee.sys.common.ResultObj;
@@ -62,6 +64,39 @@ public class GoodsController {
     @Autowired
     private IGoodsStockService goodsStockService;
 
+    @Autowired
+    private CostPricePermission costPricePermission;
+
+    /** 一个条码只能对应一个商品；老商品允许暂时不填条码。 */
+    private String validateBarcode(GoodsVo goodsVo) {
+        String barcode = StringUtils.trimToNull(goodsVo.getBarcode());
+        goodsVo.setBarcode(barcode);
+        if (barcode == null) return null;
+        if (barcode.length() > 64) return "商品条码不能超过64位";
+        QueryWrapper<Goods> query = new QueryWrapper<>();
+        query.eq("barcode", barcode);
+        if (goodsVo.getId() != null) query.ne("id", goodsVo.getId());
+        return goodsService.count(query) > 0 ? "该条码已绑定其他商品" : null;
+    }
+
+    /** 扫码枪输出条码后，按完整条码查商品，并返回所选仓库库存。 */
+    @RequestMapping("findByBarcode")
+    public DataGridView findByBarcode(String barcode, Integer warehouseId) {
+        String code = StringUtils.trimToNull(barcode);
+        if (code == null) return new DataGridView(Collections.emptyList());
+        QueryWrapper<Goods> query = new QueryWrapper<>();
+        query.eq("barcode", code).eq("available", Constast.AVAILABLE_TRUE).last("LIMIT 1");
+        Goods goods = goodsService.getOne(query);
+        if (goods == null) return new DataGridView(Collections.emptyList());
+        if (warehouseId != null) {
+            goods.setNumber(goodsStockService.getStockNumber(goods.getId(), warehouseId));
+        }
+        Provider provider = providerService.getById(goods.getProviderid());
+        if (provider != null) goods.setProvidername(provider.getProvidername());
+        costPricePermission.mask(goods);
+        return new DataGridView(Collections.singletonList(goods));
+    }
+
     /**
      * 查询商品（支持名称、拼音、简写搜索，批量查询避免 N+1）
      */
@@ -81,6 +116,7 @@ public class GoodsController {
             );
         }
         queryWrapper.like(StringUtils.isNotBlank(goodsVo.getProductcode()), "productcode", goodsVo.getProductcode());
+        queryWrapper.like(StringUtils.isNotBlank(goodsVo.getBarcode()), "barcode", goodsVo.getBarcode().trim());
         queryWrapper.like(StringUtils.isNotBlank(goodsVo.getPromitcode()), "promitcode", goodsVo.getPromitcode());
         queryWrapper.like(StringUtils.isNotBlank(goodsVo.getDescription()), "description", goodsVo.getDescription());
         queryWrapper.like(StringUtils.isNotBlank(goodsVo.getSize()), "size", goodsVo.getSize());
@@ -120,6 +156,7 @@ public class GoodsController {
                 goods.setNumber(stockMap.getOrDefault(goods.getId(), 0));
             }
         }
+        costPricePermission.mask(records);
         return new DataGridView(page.getTotal(), records);
     }
 
@@ -130,12 +167,20 @@ public class GoodsController {
     @RequestMapping("addGoods")
     public ResultObj addGoods(GoodsVo goodsVo){
         try {
+            if (!costPricePermission.canView() && goodsVo.getCostPrice() != null) {
+                return ResultObj.error("无权设置商品参考成本价");
+            }
+            String barcodeError = validateBarcode(goodsVo);
+            if (barcodeError != null) return ResultObj.error(barcodeError);
             // 手动数据校验
             if (goodsVo.getGoodsname() == null || goodsVo.getGoodsname().trim().isEmpty()) {
                 return ResultObj.error("商品名称不能为空");
             }
             if (goodsVo.getNumber() != null && goodsVo.getNumber() < 0) {
                 return ResultObj.error("商品数量不能为负数");
+            }
+            if (goodsVo.getCostPrice() != null && goodsVo.getCostPrice() < 0) {
+                return ResultObj.error("参考成本价不能为负数");
             }
             if (goodsVo.getGoodsimg()!=null && goodsVo.getGoodsimg().endsWith("_temp")){
                 String newName = AppFileUtils.renameFile(goodsVo.getGoodsimg());
@@ -163,6 +208,21 @@ public class GoodsController {
     @RequestMapping("updateGoods")
     public ResultObj updateGoods(GoodsVo goodsVo){
         try {
+            Goods oldGoods = goodsVo.getId() == null ? null : goodsService.getById(goodsVo.getId());
+            if (oldGoods == null) {
+                return ResultObj.error("商品不存在");
+            }
+            if (!costPricePermission.canView()) {
+                if (goodsVo.getCostPrice() != null) {
+                    return ResultObj.error("无权修改商品参考成本价");
+                }
+                goodsVo.setCostPrice(oldGoods.getCostPrice());
+            }
+            String barcodeError = validateBarcode(goodsVo);
+            if (barcodeError != null) return ResultObj.error(barcodeError);
+            if (goodsVo.getCostPrice() != null && goodsVo.getCostPrice() < 0) {
+                return ResultObj.error("参考成本价不能为负数");
+            }
             if (goodsVo.getGoodsimg()!=null
                     && !goodsVo.getGoodsimg().equals(Constast.DEFAULT_IMG_GOODS)
                     && goodsVo.getGoodsimg().endsWith("_temp")){
@@ -174,16 +234,20 @@ public class GoodsController {
                     AppFileUtils.removeFileByPath(oldPath);
                 }
             }
-            Goods oldGoods = goodsService.getById(goodsVo.getId());
-            if (oldGoods != null) {
-                goodsVo.setNumber(oldGoods.getNumber());
-            }
+            goodsVo.setNumber(oldGoods.getNumber());
             // 更新拼音和简写
             if (StringUtils.isNotBlank(goodsVo.getGoodsname())) {
                 goodsVo.setPinyin(PinyinUtils.getPingYin(goodsVo.getGoodsname()));
                 goodsVo.setAbbreviation(PinyinUtils.getAbbreviation(goodsVo.getGoodsname()));
             }
             goodsService.updateById(goodsVo);
+            // MyBatis-Plus 默认跳过 null，单独清空用户删除的条码。
+            if (goodsVo.getBarcode() == null && oldGoods != null && oldGoods.getBarcode() != null) {
+                goodsService.update(new UpdateWrapper<Goods>().eq("id", goodsVo.getId()).set("barcode", null));
+            }
+            if (goodsVo.getCostPrice() == null && oldGoods != null && oldGoods.getCostPrice() != null) {
+                goodsService.update(new UpdateWrapper<Goods>().eq("id", goodsVo.getId()).set("cost_price", null));
+            }
             return ResultObj.UPDATE_SUCCESS;
         } catch (Exception e) {
             log.error("修改商品失败: {}", e.getMessage(), e);
@@ -240,6 +304,7 @@ public class GoodsController {
                 goods.setProvidername(provider.getProvidername());
             }
         }
+        costPricePermission.mask(list);
         return new DataGridView(list);
     }
 
@@ -257,6 +322,7 @@ public class GoodsController {
                 .like("goodsname", kw)
                 .or().like("pinyin", kw)
                 .or().like("abbreviation", kw)
+                .or().eq("barcode", kw)
             );
         }
 
@@ -294,6 +360,7 @@ public class GoodsController {
                 ? allGoods.subList(fromIndex, toIndex)
                 : new ArrayList<>();
 
+        costPricePermission.mask(pageData);
         return new DataGridView((long) allGoods.size(), pageData);
     }
 
@@ -322,6 +389,7 @@ public class GoodsController {
                 goods.setNumber(goodsStockService.getStockNumber(goods.getId(), warehouseId));
             }
         }
+        costPricePermission.mask(list);
         return new DataGridView(list);
     }
 
@@ -334,6 +402,7 @@ public class GoodsController {
                 g.setProvidername(provider.getProvidername());
             }
         }
+        costPricePermission.mask(goods);
         return new DataGridView((long) goods.size(),goods);
     }
 

@@ -21,12 +21,14 @@
           <!-- 搜索栏 -->
           <div class="search-bar">
             <el-input
+              ref="searchInputRef"
               v-model="searchKeyword"
-              placeholder="搜索商品名称/拼音..."
+              placeholder="扫描商品条码，或输入商品名称、拼音"
               clearable
               prefix-icon="Search"
               size="large"
               @input="onSearchInput"
+              @keyup.enter="handleSearchEnter"
             />
           </div>
 
@@ -39,7 +41,7 @@
               @click="addToCart(goods)"
             >
               <div class="goods-card-name">{{ goods.goodsname }}</div>
-              <div class="goods-card-price">¥{{ goods.price?.toFixed(2) }}</div>
+              <div class="goods-card-price">售价: ¥{{ goods.price?.toFixed(2) }}</div>
               <div class="goods-card-stock">库存: {{ goods.number }}</div>
             </div>
             <div v-if="pagedGoodsList.length === 0 && !goodsLoading" class="goods-empty">
@@ -79,7 +81,10 @@
               <div class="cart-item-info">
                 <div class="cart-item-name">{{ item.goodsname }}</div>
                 <div class="cart-item-provider" v-if="item.providername">{{ item.providername }}</div>
-                <div class="cart-item-price">进货价: ¥{{ item.inportprice?.toFixed(2) }}</div>
+                <div class="cart-item-price">
+                  <span>本次进货单价:</span>
+                  <el-input-number v-model="item.inportprice" :min="0" :precision="2" size="small" style="width: 130px" />
+                </div>
               </div>
               <div class="cart-item-right">
                 <div class="cart-item-subtotal">¥{{ (item.inportprice * item.number).toFixed(2) }}</div>
@@ -196,7 +201,11 @@ import SerialNumberInput from '@/components/SerialNumberInput.vue'
 interface GoodsItem {
   id: number
   goodsname: string
+  barcode?: string | null
+  pinyin?: string | null
+  abbreviation?: string | null
   price: number
+  costPrice?: number | null
   number: number
   providername?: string
 }
@@ -215,6 +224,7 @@ const selectedProvider = ref<number | null>(null)
 const warehouses = ref<any[]>([])
 const selectedWarehouse = ref<number | null>(null)
 const searchKeyword = ref('')
+const searchInputRef = ref<{ focus: () => void } | null>(null)
 const cartItems = ref<CartItem[]>([])
 const paytype = ref('现金')
 const remark = ref('')
@@ -247,7 +257,12 @@ const filteredGoodsList = computed(() => {
   // 搜索过滤
   if (searchKeyword.value.trim()) {
     const keyword = searchKeyword.value.trim().toLowerCase()
-    list = list.filter(goods => goods.goodsname.toLowerCase().includes(keyword))
+    list = list.filter(goods =>
+      goods.goodsname.toLowerCase().includes(keyword) ||
+      goods.pinyin?.toLowerCase().includes(keyword) ||
+      goods.abbreviation?.toLowerCase().includes(keyword) ||
+      goods.barcode?.includes(keyword)
+    )
   }
 
   // 按库存排序（库存少的优先）
@@ -271,6 +286,25 @@ const totalPages = computed(() => {
 // 搜索输入
 function onSearchInput() {
   currentPage.value = 1
+}
+
+// 扫码枪通常在条码后发送回车；只将当前供应商的精确条码匹配商品加入清单。
+function handleSearchEnter() {
+  const code = searchKeyword.value.trim()
+  if (!code) return
+  if (!selectedProvider.value) {
+    ElMessage.warning('请先选择供应商')
+  } else {
+    const goods = allGoodsList.value.find(item => item.barcode === code)
+    if (goods) {
+      addToCart(goods)
+      searchKeyword.value = ''
+      currentPage.value = 1
+    } else if (/^\d{8,14}$/.test(code)) {
+      ElMessage.warning(`当前供应商下未找到条码 ${code} 对应的商品`)
+    }
+  }
+  searchInputRef.value?.focus()
 }
 
 // 页码变化
@@ -334,7 +368,7 @@ function addToCart(goods: GoodsItem) {
       goodsid: goods.id,
       goodsname: goods.goodsname,
       providername: goods.providername || '',
-      inportprice: goods.price,
+      inportprice: goods.costPrice ?? 0,
       number: 1
     })
   }
@@ -369,6 +403,12 @@ function handleConfirm() {
 
   if (cartItems.value.length === 0) {
     ElMessage.warning('进货清单为空')
+    return
+  }
+
+  const invalidItem = cartItems.value.find(item => !Number.isFinite(item.inportprice) || item.inportprice <= 0)
+  if (invalidItem) {
+    ElMessage.warning(`请填写“${invalidItem.goodsname}”的本次进货单价`)
     return
   }
 

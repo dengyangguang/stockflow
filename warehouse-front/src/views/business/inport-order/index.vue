@@ -538,7 +538,7 @@ const resetAddForm = () => {
 const onGoodsChange = (index: number, goodsid: number) => {
   const goods = goodsList.value.find((g: any) => g.id === goodsid)
   if (goods) {
-    addForm.items[index].inportprice = goods.price || 0
+    addForm.items[index].inportprice = goods.costPrice ?? 0
   }
 }
 
@@ -546,6 +546,10 @@ const handleAddGoodsSubmit = async () => {
   const validItems = addForm.items.filter(item => item.goodsid && item.number > 0)
   if (validItems.length === 0) {
     ElMessage.warning('请至少添加一个商品')
+    return
+  }
+  if (validItems.some(item => !Number.isFinite(item.inportprice) || item.inportprice <= 0)) {
+    ElMessage.warning('请填写本次实际进货单价')
     return
   }
 

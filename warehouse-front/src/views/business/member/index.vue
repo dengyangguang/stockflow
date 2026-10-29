@@ -42,10 +42,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="createTime" label="注册时间" width="160" />
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="350" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="handleRecharge(row)">充值</el-button>
             <el-button type="warning" link @click="handleConsume(row)">消费</el-button>
+            <el-button type="primary" link @click="handleSetPin(row)">支付密码</el-button>
             <el-button type="success" link @click="handleRecords(row)">记录</el-button>
             <el-button type="info" link @click="handleEdit(row)">编辑</el-button>
             <el-button type="danger" link @click="handleDelete(row)">删除</el-button>
@@ -92,10 +93,26 @@
         <el-form-item label="金额">
           <el-input-number v-model="moneyAmount" :min="0.01" :precision="2" style="width: 200px;" />
         </el-form-item>
+        <el-form-item v-if="moneyType === 'consume'" label="支付密码">
+          <el-input v-model="consumePin" type="password" inputmode="numeric" maxlength="6"
+            show-password autocomplete="off" placeholder="会员的6位支付密码" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="moneyDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleMoneySubmit" :loading="moneyLoading">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="pinDialogVisible" title="设置或重置会员支付密码" width="420px" @closed="resetPinForm">
+      <p>{{ currentMember?.name }}（{{ currentMember?.memberNo }}）</p>
+      <el-input v-model="newPin" type="password" inputmode="numeric" maxlength="6"
+        show-password autocomplete="off" placeholder="请会员输入6位数字密码" />
+      <el-input v-model="confirmPin" type="password" inputmode="numeric" maxlength="6"
+        show-password autocomplete="off" placeholder="再次输入支付密码" style="margin-top: 12px" />
+      <template #footer>
+        <el-button @click="pinDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="pinSaving" @click="handlePinSubmit">保存</el-button>
       </template>
     </el-dialog>
 
@@ -134,7 +151,7 @@ import CrudTable from '@/components/CrudTable.vue'
 import CrudDialog from '@/components/CrudDialog.vue'
 import {
   loadAllMember, addMember, updateMember,
-  recharge, consume, loadMemberRecords, deleteMember,
+  recharge, consume, setPaymentPin, loadMemberRecords, deleteMember,
   loadLevelRules
 } from '@/api/member'
 
@@ -148,6 +165,42 @@ const moneyType = ref<'recharge' | 'consume'>('recharge')
 const currentMember = ref<any>(null)
 const moneyAmount = ref(100)
 const moneyLoading = ref(false)
+const consumePin = ref('')
+const pinDialogVisible = ref(false)
+const newPin = ref('')
+const confirmPin = ref('')
+const pinSaving = ref(false)
+
+function resetPinForm() {
+  newPin.value = ''
+  confirmPin.value = ''
+}
+
+function handleSetPin(row: any) {
+  currentMember.value = row
+  resetPinForm()
+  pinDialogVisible.value = true
+}
+
+async function handlePinSubmit() {
+  if (!/^\d{6}$/.test(newPin.value)) {
+    ElMessage.warning('支付密码必须是6位数字')
+    return
+  }
+  if (newPin.value !== confirmPin.value) {
+    ElMessage.warning('两次输入的密码不一致')
+    return
+  }
+  pinSaving.value = true
+  try {
+    await setPaymentPin({ memberId: currentMember.value.id, paymentPin: newPin.value })
+    ElMessage.success('支付密码已设置')
+    pinDialogVisible.value = false
+  } catch {} finally {
+    resetPinForm()
+    pinSaving.value = false
+  }
+}
 
 const recordsDialogVisible = ref(false)
 const memberRecords = ref<any[]>([])
@@ -192,14 +245,20 @@ function handleConsume(row: any) {
   moneyType.value = 'consume'
   moneyDialogTitle.value = '会员消费'
   moneyAmount.value = 100
+  consumePin.value = ''
   moneyDialogVisible.value = true
 }
 
 async function handleMoneySubmit() {
+  if (moneyType.value === 'consume' && !/^\d{6}$/.test(consumePin.value)) {
+    ElMessage.warning('请输入会员的6位数字支付密码')
+    return
+  }
   moneyLoading.value = true
   try {
     const api = moneyType.value === 'recharge' ? recharge : consume
-    const res: any = await api({ memberId: currentMember.value.id, amount: moneyAmount.value })
+    const res: any = await api({ memberId: currentMember.value.id, amount: moneyAmount.value,
+      ...(moneyType.value === 'consume' ? { paymentPin: consumePin.value } : {}) })
     if (res.code === 200) {
       ElMessage.success(res.msg)
       moneyDialogVisible.value = false
@@ -208,6 +267,7 @@ async function handleMoneySubmit() {
       ElMessage.error(res.msg)
     }
   } catch {} finally {
+    consumePin.value = ''
     moneyLoading.value = false
   }
 }

@@ -24,6 +24,10 @@ export function consume(data: any) {
   return request.post('/member/consume', data)
 }
 
+export function setPaymentPin(data: { memberId: number; paymentPin: string }) {
+  return request.post('/member/setPaymentPin', data)
+}
+
 export function loadMemberRecords(params: any) {
   return request.get('/member/loadMemberRecords', { params })
 }
